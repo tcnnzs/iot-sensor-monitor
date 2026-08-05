@@ -101,6 +101,29 @@ sensor-dashboard/
 
 ---
 
+## 🌐 在线部署
+
+### 方法一：快速分享（推荐，一条命令）
+
+用 [ngrok](https://ngrok.com/) 生成一个临时公网链接，别人立马能访问：
+
+```bash
+ngrok http 8080
+```
+
+会得到一个 `https://xxxx.ngrok-free.app` 地址，发给别人就能打开。
+
+### 方法二：永久免费部署
+
+[Render](https://render.com/) 免费托管，提交代码自动部署：
+
+1. Fork 这个仓库
+2. 在 Render 中点击 "New Web Service"，连接 GitHub 仓库
+3. Render 会自动读取项目中的 `Procfile` 和 `requirements.txt`，无需额外配置
+4. 部署完成后获得永久公网地址 `https://xxx.onrender.com`
+
+---
+
 ## 📄 License
 
 MIT — 随意使用、修改。
