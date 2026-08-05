@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT 传感器实时监控面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js">
+    </script>
+    <style>
+        :root {
+            --bg: #0f1923;
+            --card-bg: #1a2736;
+            --text: #e0e6ed;
+            --accent: #00d4aa;
+            --warn: #f0a030;
+            --danger: #f05050;
+            --border: #2a3a4a;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ---- 顶部状态栏 ---- */
+        .header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 32px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+        }
+        .header h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+        .header h1 span { color: var(--accent); }
+        .status { display: flex; align-items: center; gap: 8px; }
+        .dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .status-text { font-size: 13px; color: #8899aa; }
+
+        /* ---- 数值卡片 ---- */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            padding: 24px 32px;
+        }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            transition: transform 0.15s;
+        }
+        .card:hover { transform: translateY(-2px); }
+        .card-label {
+            font-size: 12px; text-transform: uppercase;
+            color: #6a7d8e; letter-spacing: 1px; margin-bottom: 8px;
+        }
+        .card-value {
+            font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums;
+        }
+        .card-unit { font-size: 14px; color: #6a7d8e; margin-left: 4px; }
+
+        /* ---- 图表区域 ---- */
+        .charts {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 16px;
+            padding: 0 32px 32px;
+            height: calc(100vh - 280px);
+            min-height: 420px;
+        }
+        .chart-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            position: relative;
+        }
+        .chart-box.main { grid-row: span 2; }
+        .chart-box canvas { width: 100% !important; height: 100% !important; }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部 -->
+    <div class="header">
+        <h1>⚡ <span>IoT</span> Sensor Dashboard</h1>
+        <div class="status">
+            <div class="dot"></div>
+            <span class="status-text" id="statusLabel">实时接收中</span>
+            <span class="status-text" id="updateCount" style="margin-left:12px;"></span>
+        </div>
+    </div>
+
+    <!-- 数值卡片 -->
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">🌡 温度</div>
+            <div class="card-value" style="color:#f0a030" id="valTemp">--</div>
+            <span class="card-unit">°C</span>
+        </div>
+        <div class="card">
+            <div class="card-label">💧 湿度</div>
+            <div class="card-value" style="color:#4da6ff" id="valHum">--</div>
+            <span class="card-unit">%RH</span>
+        </div>
+        <div class="card">
+            <div class="card-label">📊 气压</div>
+            <div class="card-value" style="color:#a78bfa" id="valPres">--</div>
+            <span class="card-unit">hPa</span>
+        </div>
+        <div class="card">
+            <div class="card-label">⚡ 电压</div>
+            <div class="card-value" style="color:#00d4aa" id="valVolt">--</div>
+            <span class="card-unit">V</span>
+        </div>
+        <div class="card">
+            <div class="card-label">🔌 电流</div>
+            <div class="card-value" style="color:#f05050" id="valCurr">--</div>
+            <span class="card-unit">mA</span>
+        </div>
+    </div>
+
+    <!-- 图表 -->
+    <div class="charts">
+        <div class="chart-box main">
+            <canvas id="chartMain"></canvas>
+        </div>
+        <div class="chart-box">
+            <canvas id="chartVoltage"></canvas>
+        </div>
+        <div class="chart-box">
+            <canvas id="chartCurrent"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // ---- 配置 ----
+        const MAX_POINTS = 120; // 保留最近 120 个数据点
+
+        // ---- 数据缓冲 ----
+        const labels = [];
+        const datasets = {
+            temp: [], hum: [], pres: [], volt: [], curr: []
+        };
+
+        // ---- 工具函数 ----
+        function pushData(label, values) {
+            labels.push(label);
+            if (labels.length > MAX_POINTS) labels.shift();
+
+            datasets.temp.push(values.temp);
+            datasets.hum.push(values.hum);
+            datasets.pres.push(values.pres);
+            datasets.volt.push(values.volt);
+            datasets.curr.push(values.curr);
+
+            for (const arr of Object.values(datasets)) {
+                if (arr.length > MAX_POINTS) arr.shift();
+            }
+        }
+
+        // ---- 创建图表 ----
+        function createChart(canvasId, label, dataKey, color, yMin, yMax) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: datasets[dataKey],
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.3,
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 200 },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8899aa', font: { size: 11 } }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#4a5a6a', maxTicksLimit: 8, font: { size: 10 } },
+                            grid: { color: '#1e2e3e' }
+                        },
+                        y: {
+                            min: yMin, max: yMax,
+                            ticks: { color: '#4a5a6a', font: { size: 10 } },
+                            grid: { color: '#1e2e3e' }
+                        }
+                    }
+                }
+            });
+        }
+
+        const chartMain = createChart('chartMain', '温度 °C', 'temp', '#f0a030', 10, 40);
+        // 湿度双轴叠加在主图表上
+        chartMain.data.datasets.push({
+            label: '湿度 %RH',
+            data: datasets.hum,
+            borderColor: '#4da6ff',
+            backgroundColor: '#4da6ff20',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: true,
+            yAxisID: 'y1',
+        });
+        chartMain.options.scales.y1 = {
+            type: 'linear',
+            position: 'right',
+            min: 20, max: 100,
+            ticks: { color: '#4a5a6a', font: { size: 10 } },
+            grid: { display: false },
+        };
+
+        const chartVoltage = createChart('chartVoltage', '电压 V', 'volt', '#00d4aa', 3.15, 3.45);
+        const chartCurrent = createChart('chartCurrent', '电流 mA', 'curr', '#f05050', 0, 300);
+
+        // ---- 更新 UI ----
+        function updateCards(data) {
+            document.getElementById('valTemp').textContent = data.temperature_c;
+            document.getElementById('valHum').textContent = data.humidity_pct;
+            document.getElementById('valPres').textContent = data.pressure_hpa;
+            document.getElementById('valVolt').textContent = data.voltage_v;
+            document.getElementById('valCurr').textContent = data.current_ma;
+        }
+
+        let count = 0;
+        function updateAll(data) {
+            count++;
+            const time = data.timestamp.split(' ')[1] || data.timestamp;
+            pushData(time, {
+                temp: data.temperature_c,
+                hum: data.humidity_pct,
+                pres: data.pressure_hpa,
+                volt: data.voltage_v,
+                curr: data.current_ma,
+            });
+            updateCards(data);
+            chartMain.update();
+            chartVoltage.update();
+            chartCurrent.update();
+            document.getElementById('updateCount').textContent = `已接收 ${count} 帧`;
+        }
+
+        // ---- SSE 连接 ----
+        const evtSource = new EventSource('/api/stream');
+        evtSource.onmessage = (event) => {
+            try {
+                updateAll(JSON.parse(event.data));
+            } catch (e) {
+                console.error('数据解析失败:', e);
+            }
+        };
+        evtSource.onerror = () => {
+            document.getElementById('statusLabel').textContent = '连接中断，重连中...';
+        };
+        evtSource.onopen = () => {
+            document.getElementById('statusLabel').textContent = '实时接收中';
+        };
+    </script>
+</body>
+</html>
