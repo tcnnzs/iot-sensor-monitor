@@ -126,4 +126,4 @@ ngrok http 8080
 
 ## 📄 License
 
-MIT — 随意使用、修改。
+MIT — 随意使用、修改、改良。
